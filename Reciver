@@ -1,0 +1,158 @@
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+
+// Try 0x27 first. If no display, change to 0x3F
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+int ldrPin = A0;
+int threshold = 300;
+
+bool lightOn = false;
+bool lastState = false;
+
+unsigned long lastChange = 0;
+
+// Morse timing (for your hardware)
+unsigned int dotTime   = 180;
+unsigned int dashTime  = 450;
+unsigned int letterGap = 700;
+unsigned int wordGap   = 1500;
+
+String morseSymbol = "";
+String message = "";
+
+// ---------------- LCD AUTO-CLEAR FUNCTION ----------------
+void updateLCD(String text) {
+  if (text.length() >= 16) { 
+    lcd.clear();
+    lcd.setCursor(0,0);
+    
+    // Keep last 16 chars on fresh screen (full line)
+    lcd.print(text.substring(text.length() - 16));
+    
+    // Add label on second line
+    lcd.setCursor(5,1);
+    lcd.print("CSE-I");
+  } else {
+    lcd.setCursor(0,0);
+    lcd.print(text);
+    // Clear remaining characters if any
+    for (int i = text.length(); i < 16; i++) {
+      lcd.print(" ");
+    }
+  }
+}
+// ---------------------------------------------------------
+
+// Morse decoder
+char decodeMorse(String m) {
+  if (m == ".-") return 'A';
+  if (m == "-...") return 'B';
+  if (m == "-.-.") return 'C';
+  if (m == "-..") return 'D';
+  if (m == ".") return 'E';
+  if (m == "..-.") return 'F';
+  if (m == "--.") return 'G';
+  if (m == "....") return 'H';
+  if (m == "..") return 'I';
+  if (m == ".---") return 'J';
+  if (m == "-.-") return 'K';
+  if (m == ".-..") return 'L';
+  if (m == "--") return 'M';
+  if (m == "-.") return 'N';
+  if (m == "---") return 'O';
+  if (m == ".--.") return 'P';
+  if (m == "--.-") return 'Q';
+  if (m == ".-.") return 'R';
+  if (m == "...") return 'S';
+  if (m == "-") return 'T';
+  if (m == "..-") return 'U';
+  if (m == "...-") return 'V';
+  if (m == ".--") return 'W';
+  if (m == "-..-") return 'X';
+  if (m == "-.--") return 'Y';
+  if (m == "--..") return 'Z';
+
+  if (m == "-----") return '0';
+  if (m == ".----") return '1';
+  if (m == "..---") return '2';
+  if (m == "...--") return '3';
+  if (m == "....-") return '4';
+  if (m == ".....") return '5';
+  if (m == "-....") return '6';
+  if (m == "--...") return '7';
+  if (m == "---..") return '8';
+  if (m == "----.") return '9';
+
+  return '?';
+}
+
+void setup() {
+  Serial.begin(9600);
+  Serial.println("📡 Morse Receiver Ready");
+
+  lcd.init();
+  lcd.backlight();
+  lcd.setCursor(0,0);
+  lcd.print("Morse Ready");
+  lcd.setCursor(5,1);
+  lcd.print("CSE-I");
+  delay(1000);
+
+  lcd.clear();
+  // Set up permanent label on second line
+  lcd.setCursor(5,1);
+  lcd.print("CSE-I");
+}
+
+void loop() {
+
+  int val = analogRead(ldrPin);
+
+  // Smooth noise filter
+  static int smooth = 0;
+  smooth = (smooth * 7 + val) / 8;
+
+  lightOn = (smooth < threshold);
+
+  unsigned long now = millis();
+
+  // DETECT CHANGE ON/OFF
+  if (lightOn != lastState) {
+
+    unsigned long duration = now - lastChange;
+
+    // ---------------- END OF PULSE (. or -) ----------------
+    if (!lightOn && lastState) {
+      if (duration < dotTime * 1.3) 
+        morseSymbol += ".";
+      else 
+        morseSymbol += "-";
+    }
+
+    // ---------------- START OF PULSE (gap finished) --------
+    if (lightOn && !lastState) {
+
+      // Gap between letters
+      if (duration > letterGap && morseSymbol.length() > 0) {
+        char decoded = decodeMorse(morseSymbol);
+        Serial.print(decoded);
+
+        message += decoded;
+        updateLCD(message);
+
+        morseSymbol = "";
+      }
+
+      // Gap between words
+      if (duration > wordGap) {
+        Serial.print(" ");
+        message += " ";
+        updateLCD(message);
+      }
+    }
+
+    lastState = lightOn;
+    lastChange = now;
+  }
+}
